@@ -12,6 +12,7 @@ import reactor.core.scheduler.Schedulers;
 import reactor.test.StepVerifier;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Stream;
 
 
@@ -26,6 +27,8 @@ class FluxRequestApplicationTests {
 
     public static final int pagesize = 10;
     public static final int generate = 87;
+    public static final int pageStart = 0;
+    private static final int PARALLEL_TASKS = 2;
 
     @Test
     void query_parallel() {
@@ -38,18 +41,18 @@ class FluxRequestApplicationTests {
                 .uri(uriBuilder -> uriBuilder
                         .queryParam(GENERATE, generate)
                         .queryParam(PAGESIZE, pagesize)
-                        .queryParam(PAGENUMBER, 0)
+                        .queryParam(PAGENUMBER, pageStart)
                         .build())
                 .retrieve()
                 .toEntity(UserResponse.class)
                 .block();
 
-        Integer total = Integer.parseInt(firstPageResponse.getHeaders().get("x-count").get(0));
+        int total = Integer.parseInt(firstPageResponse.getHeaders().get("x-count").get(0));
 
         int totalPages = (int) Math.floor(total / pagesize);
         log.info("{} items on {} pages", total, totalPages);
 
-        List<User> results = Flux.range(1, totalPages)
+        List<User> results = Flux.range(pageStart+1, totalPages)
                 .flatMap(page ->
                         {
                             log.info("Requesting page: {}", page);
@@ -63,9 +66,9 @@ class FluxRequestApplicationTests {
                                     .bodyToMono(UserResponse.class)
                                     //.delayElement(Duration.ofMillis(500))
                                     ;
-                        }, 2 // Concurrent requests limited to 2
+                        }, PARALLEL_TASKS // Concurrent requests limited to 2
                 )
-                .parallel(2) // no effect ?
+                .parallel(PARALLEL_TASKS) // no effect ?
                 .runOn(Schedulers.boundedElastic())
                 .sequential()
                 .map(UserResponse::getContent)
@@ -74,7 +77,7 @@ class FluxRequestApplicationTests {
                 .block();
 
         List<User> allResults = Stream.concat(
-                firstPageResponse.getBody().getContent().stream(),
+                Objects.requireNonNull(firstPageResponse.getBody()).getContent().stream(),
                 results.stream()
             ).toList();
 
